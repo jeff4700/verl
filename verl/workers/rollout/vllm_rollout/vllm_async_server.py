@@ -39,6 +39,7 @@ from verl.utils.device import get_resource_name, get_visible_devices_keyword, is
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler import DistProfiler, build_vllm_profiler_args
 from verl.utils.tokenizer import normalize_token_ids
+from verl.utils.vllm.patch import patch_vllm_qwen3_5_text_architectures
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -198,6 +199,21 @@ class vLLMHttpServer:
             self._master_address = master_address
             self._master_port = master_port
             self._dp_rpc_port = dp_rpc_port
+
+        # Some vLLM versions miss Qwen3.5 text-only causal-LM registry entries.
+        # Patch them before vLLM resolves the architecture from the HF config.
+        patch_vllm_qwen3_5_text_architectures()
+        logger.warning(
+            "Pre-launch model config: path=%s hf_config_type=%s architectures=%s "
+            "language_model_only=%s trust_remote_code=%s",
+            self.model_config.path,
+            type(getattr(self.model_config, "hf_config", None)).__name__,
+            getattr(getattr(self.model_config, "hf_config", None), "architectures", None),
+            (self.config.get("engine_kwargs", {}).get(self._get_engine_kwargs_key(), {}) or {}).get(
+                "language_model_only", None
+            ),
+            self.model_config.trust_remote_code,
+        )
 
         # 1. setup vllm serve cli args
         engine_kwargs = self.config.get("engine_kwargs", {}).get(self._get_engine_kwargs_key(), {}) or {}
@@ -947,6 +963,9 @@ class vLLMReplica(RolloutReplica):
             )
             self.servers.append(server)
 
+        print("========verl-vllm==============")
+        print(self.model_config)
+        print("========verl-vllm==============")
         # launch http server in each node
         master_address, master_port, dp_rpc_port = await self.servers[0].get_master_address.remote()
         await asyncio.gather(

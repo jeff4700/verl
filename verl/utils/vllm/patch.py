@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 # To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering
 # unsupported issues.
 SUPPORTED_MOE_MODELS = []
+logger = logging.getLogger(__name__)
 
 try:
     from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
@@ -72,6 +75,48 @@ try:
     SUPPORTED_MOE_MODELS.append(Qwen3_5MoeForCausalLM)
 except ImportError:
     pass
+
+
+def patch_vllm_qwen3_5_text_architectures():
+    """Register missing Qwen3.5 text-only architectures in vLLM.
+
+    Some vLLM versions expose Qwen3.5 text-only model classes but do not
+    register their causal-LM architectures. In that case, vLLM falls back from
+    ``Qwen3_5ForCausalLM`` to the registered
+    ``Qwen3_5ForConditionalGeneration`` sibling, which incorrectly enables the
+    multimodal processor and breaks on ``Qwen3_5TextConfig`` checkpoints.
+    """
+
+    try:
+        from vllm.model_executor.models import ModelRegistry
+        from vllm.model_executor.models import registry as vllm_registry
+        from vllm.model_executor.models.config import (
+            MODELS_CONFIG_MAP,
+            Qwen3_5ForConditionalGenerationConfig,
+        )
+    except ImportError:
+        return
+
+    qwen3_5_text_entries = {
+        "Qwen3_5ForCausalLM": ("qwen3_5", "Qwen3_5ForCausalLM"),
+        "Qwen3_5MoeForCausalLM": ("qwen3_5", "Qwen3_5MoeForCausalLM"),
+    }
+    patched_architectures = []
+
+    for architecture, (module_name, class_name) in qwen3_5_text_entries.items():
+        vllm_registry._TEXT_GENERATION_MODELS.setdefault(architecture, (module_name, class_name))
+        vllm_registry._VLLM_MODELS.setdefault(architecture, (module_name, class_name))
+        MODELS_CONFIG_MAP.setdefault(architecture, Qwen3_5ForConditionalGenerationConfig)
+
+        if architecture not in ModelRegistry.models:
+            ModelRegistry.register_model(architecture, f"vllm.model_executor.models.{module_name}:{class_name}")
+            patched_architectures.append(architecture)
+
+    if patched_architectures:
+        logger.info(
+            "Registered missing vLLM Qwen3.5 text-only architectures: %s",
+            ", ".join(patched_architectures),
+        )
 
 
 def patch_vllm_moe_model_weight_loader(model):

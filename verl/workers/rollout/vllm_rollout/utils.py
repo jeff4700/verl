@@ -26,7 +26,7 @@ from vllm.outputs import RequestOutput
 
 from verl.utils.device import is_npu_available
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack
-from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader, patch_vllm_qwen3_5_text_architectures
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 
 try:
@@ -47,6 +47,11 @@ _OmniWorkerBase = CustomPipelineWorkerExtension if _VLLM_OMNI_AVAILABLE else obj
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+# vLLM worker subprocesses import this module when resolving
+# `worker_extension_cls`. Patch the Qwen3.5 text-only registry entries here so
+# spawned workers resolve `Qwen3_5ForCausalLM` before model loading starts.
+patch_vllm_qwen3_5_text_architectures()
 
 # magic numbers that ensure we are using the same LoRA adapter during the rollout and training process
 VLLM_LORA_INT_ID = 123

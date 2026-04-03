@@ -126,6 +126,14 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
         transformer_cls_to_wrap = set()
         for layer_class in fsdp_transformer_layer_cls_to_wrap:
             transformer_cls = get_module_class_from_name(module, layer_class)
+            print("============================")
+            print("module: ", module)
+            print("layer_class :", layer_class)
+            print("transformer_cls: ", transformer_cls)
+            print("============================")
+            if transformer_cls is None and layer_class == "Qwen3_5VisionBlock" and not hasattr(module, "visual"):
+                continue
+
             if transformer_cls is None:
                 raise Exception("Could not find the transformer layer class to wrap in the model.")
             else:
